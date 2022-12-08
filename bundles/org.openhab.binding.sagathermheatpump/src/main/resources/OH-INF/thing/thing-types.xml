@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<thing:thing-descriptions bindingId="sagathermheatpump"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xmlns:thing="https://openhab.org/schemas/thing-description/v1.0.0"
+	xsi:schemaLocation="https://openhab.org/schemas/thing-description/v1.0.0 https://openhab.org/schemas/thing-description-1.0.0.xsd">
+
+	<thing-type id="heat-pump">
+		<label>SagaThermHeatPump Binding Thing</label>
+		<description>Thing for SagaThermHeatPump Binding</description>
+
+		<channels>
+			<channel id="power" typeId="system.power"/>
+			<channel id="boiler" typeId="system.power"/>
+			<channel id="state" typeId="state-type"/>
+			<channel id="setpointComfortTemperature" typeId="setpoint-comfort-temperature-channel-type"/>
+			<channel id="setpointBoilerTemperature" typeId="setpoint-boiler-temperature-channel-type"/>
+			<channel id="airTemperature" typeId="air-temperature-channel-type"/>
+			<channel id="boilerTemperature" typeId="boiler-temperature-channel-type"/>
+		</channels>
+
+		<config-description>
+			<parameter name="hostname" type="text" required="true">
+				<default>192.168.188.3</default>
+				<context>network-address</context>
+				<label>Hostname</label>
+				<description>Hostname or IP address of the device</description>
+			</parameter>
+			<parameter name="port" type="integer" required="true">
+				<default>4002</default>
+				<label>Port</label>
+				<description>Port of the device</description>
+			</parameter>
+			<parameter name="refreshInterval" type="integer" unit="s" min="1">
+				<label>Refresh Interval</label>
+				<description>Interval the device is polled in sec.</description>
+				<default>1</default>
+				<advanced>true</advanced>
+			</parameter>
+		</config-description>
+	</thing-type>
+
+	<channel-type id="state-type">
+		<item-type>Number</item-type>
+		<label>Current state</label>
+		<description>Present the current state of device</description>
+		<state readOnly="true"/>
+	</channel-type>
+
+	<channel-type id="setpoint-comfort-temperature-channel-type">
+		<item-type>Number:Temperature</item-type>
+		<label>Comfort Temperature</label>
+		<description>The preferred comfort temperature</description>
+		<state min="18" max="25" step="1" pattern="%d °C" readOnly="false"/>
+	</channel-type>
+
+	<channel-type id="setpoint-boiler-temperature-channel-type">
+		<item-type>Number:Temperature</item-type>
+		<label>Boiler Set Point Temperature</label>
+		<description>The preferred water temperature in the boiler</description>
+		<state min="30" max="50" step="1" pattern="%.1f °C" readOnly="false"/>
+	</channel-type>
+
+	<channel-type id="air-temperature-channel-type">
+		<item-type>Number:Temperature</item-type>
+		<label>Air CurrentTemperature</label>
+		<description>The current air temperature in the room</description>
+		<state pattern="%.1f °C" readOnly="true"/>
+	</channel-type>
+
+	<channel-type id="boiler-temperature-channel-type">
+		<item-type>Number:Temperature</item-type>
+		<label>Boiler CurrentTemperature</label>
+		<description>The current water temperature in the boiler</description>
+		<state pattern="%.1f °C" readOnly="true"/>
+	</channel-type>
+
+</thing:thing-descriptions>
