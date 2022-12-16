@@ -23,5 +23,6 @@ import org.eclipse.jdt.annotation.NonNullByDefault;
 public class SagaThermHeatPumpConfiguration {
     public String hostname = "";
     public int port;
-    public int refreshInterval;
+    public int pollInterval;
+    public int reconnectInterval;
 }

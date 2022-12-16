@@ -15,6 +15,8 @@ package org.openhab.binding.sagathermheatpump.internal;
 import static org.openhab.binding.sagathermheatpump.internal.SagaThermHeatPumpBindingConstants.*;
 
 import java.io.IOException;
+import java.math.BigDecimal;
+import java.util.Map;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -22,10 +24,7 @@ import org.eclipse.jdt.annotation.NonNullByDefault;
 import org.eclipse.jdt.annotation.Nullable;
 import org.openhab.core.library.types.QuantityType;
 import org.openhab.core.library.unit.SIUnits;
-import org.openhab.core.thing.ChannelUID;
-import org.openhab.core.thing.Thing;
-import org.openhab.core.thing.ThingStatus;
-import org.openhab.core.thing.ThingStatusDetail;
+import org.openhab.core.thing.*;
 import org.openhab.core.thing.binding.BaseThingHandler;
 import org.openhab.core.types.Command;
 import org.openhab.core.types.RefreshType;
@@ -39,18 +38,56 @@ import org.slf4j.LoggerFactory;
  * @author Maxim Yelgazin - Initial contribution
  */
 @NonNullByDefault
-public class SagaThermHeatPumpHandler extends BaseThingHandler implements Observer {
+public class SagaThermHeatPumpHandler extends BaseThingHandler implements SagaThermClientCallback {
     private final Logger logger = LoggerFactory.getLogger(SagaThermHeatPumpHandler.class);
     private final SagaThermHeatPumpConfiguration config = getConfigAs(SagaThermHeatPumpConfiguration.class);
-    private final SagaThermClient client = new SagaThermClient(config.hostname, config.port);
     @Nullable
-    private ScheduledFuture<?> poolingStatusJob = null;
+    private SagaThermClient client;
     @Nullable
-    private ScheduledFuture<?> poolingThinsStatusJob = null;
+    private ScheduledFuture<?> pollingThingStatusJob;
 
     public SagaThermHeatPumpHandler(Thing thing) {
         super(thing);
-        client.registerObserver(this);
+    }
+
+    @Override
+    public void handleConfigurationUpdate(Map<String, Object> configurationParameters) {
+        for (var entry : configurationParameters.entrySet()) {
+            switch (entry.getKey()) {
+                case "hostname":
+                    config.hostname = (String) entry.getValue();
+                    break;
+                case "port":
+                    config.port = ((BigDecimal) entry.getValue()).intValue();
+                    break;
+                case "pollInterval":
+                    config.pollInterval = ((BigDecimal) entry.getValue()).intValue();
+                    break;
+                case "reconnectInterval":
+                    config.reconnectInterval = ((BigDecimal) entry.getValue()).intValue();
+                    break;
+            }
+        }
+        super.handleConfigurationUpdate(configurationParameters);
+    }
+
+    @Override
+    public void initialize() {
+        logger.debug("Initializing");
+
+        if (pollingThingStatusJob == null) {
+            pollingThingStatusJob = scheduler.scheduleWithFixedDelay(this::pollingThingStatus, config.reconnectInterval,
+                    config.reconnectInterval, TimeUnit.MINUTES);
+        }
+
+        try {
+            client = new SagaThermClient(config.hostname, config.port, config.pollInterval, this);
+            client.connect();
+            updateStatus(ThingStatus.ONLINE);
+        } catch (Exception ex) {
+            logger.error("Could not connect to the device. {}", ex.getMessage());
+            updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.COMMUNICATION_ERROR, "Could not connect to the device");
+        }
     }
 
     @Override
@@ -72,59 +109,37 @@ public class SagaThermHeatPumpHandler extends BaseThingHandler implements Observ
                 }
             }
         } catch (IOException ex) {
-            logger.error("Exception while trying to send requests.");
+            logger.error("IOException while trying to send requests");
             updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.COMMUNICATION_ERROR);
         }
     }
 
     @Override
-    public void initialize() {
-        try {
-            client.initialize();
-            updateStatus(ThingStatus.ONLINE);
-        } catch (Exception ex) {
-            logger.error("Could not connect to the device. {}", ex.getMessage());
-            updateStatus(ThingStatus.OFFLINE, ThingStatusDetail.COMMUNICATION_ERROR, "Could not connect to the device");
+    protected void updateStatus(ThingStatus status, ThingStatusDetail statusDetail, @Nullable String description) {
+        if (status == ThingStatus.OFFLINE) {
+            client.disconnect();
         }
-
-        // TO DO
-        // Decide what to do with previous jobs
-        poolingStatusJob = scheduler.scheduleWithFixedDelay(this::pollingStatus, 0, config.refreshInterval,
-                TimeUnit.SECONDS);
-        poolingThinsStatusJob = scheduler.scheduleWithFixedDelay(this::poolingThingStatusJob, 0, 5, TimeUnit.MINUTES);
+        super.updateStatus(status, statusDetail, description);
     }
 
-    private void pollingStatus() {
-        try {
-            client.requestStatus();
-        } catch (IOException ignored) {
-        }
-    }
-
-    private void poolingThingStatusJob() {
-        if (getThing().getStatus() == ThingStatus.OFFLINE) {
+    private void pollingThingStatus() {
+        logger.debug("Polling thing status");
+        var thing = getThing();
+        if (thing.getStatus() == ThingStatus.OFFLINE
+                && thing.getStatusInfo().getStatusDetail() == ThingStatusDetail.COMMUNICATION_ERROR) {
             initialize();
+            updateStatus(ThingStatus.ONLINE);
         }
-    }
-
-    @Override
-    public void handleRemoval() {
-        super.handleRemoval();
-        client.terminate();
     }
 
     @Override
     public void dispose() {
+        logger.debug("Disposing");
+        if (pollingThingStatusJob != null) {
+            pollingThingStatusJob.cancel(true);
+        }
+        client.disconnect();
         super.dispose();
-        client.removeObserver(this);
-        client.dispose();
-
-        if (poolingStatusJob != null) {
-            poolingStatusJob.cancel(true);
-        }
-        if (poolingThinsStatusJob != null) {
-            poolingThinsStatusJob.cancel(true);
-        }
     }
 
     @Override
@@ -159,6 +174,7 @@ public class SagaThermHeatPumpHandler extends BaseThingHandler implements Observ
         updateState(CHANNEL_BOILER_TEMPERATURE, new QuantityType<>(temperature, SIUnits.CELSIUS));
     }
 
+    @Override
     public void onUncaughtException(Throwable ex) {
         updateStatus(ThingStatus.OFFLINE);
         logger.error("Uncaught exception. {}", ex.getMessage());

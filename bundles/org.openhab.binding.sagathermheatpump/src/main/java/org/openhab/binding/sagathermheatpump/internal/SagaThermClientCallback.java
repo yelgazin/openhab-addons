@@ -18,7 +18,7 @@ import org.eclipse.jdt.annotation.NonNullByDefault;
  * @author Maxim Yelgazin - Initial contribution
  */
 @NonNullByDefault
-interface Observer {
+interface SagaThermClientCallback {
     void updatePower(boolean on);
 
     void updateBoiler(boolean on);

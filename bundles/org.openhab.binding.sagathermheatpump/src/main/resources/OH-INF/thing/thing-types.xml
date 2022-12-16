@@ -23,17 +23,27 @@
 				<default>192.168.188.3</default>
 				<context>network-address</context>
 				<label>Hostname</label>
+				<required>true</required>
 				<description>Hostname or IP address of the device</description>
 			</parameter>
 			<parameter name="port" type="integer" required="true">
 				<default>4002</default>
 				<label>Port</label>
+				<required>true</required>
 				<description>Port of the device</description>
 			</parameter>
-			<parameter name="refreshInterval" type="integer" unit="s" min="1">
+			<parameter name="pollInterval" type="integer" unit="s" min="1">
 				<label>Refresh Interval</label>
+				<required>true</required>
 				<description>Interval the device is polled in sec.</description>
 				<default>1</default>
+				<advanced>true</advanced>
+			</parameter>
+			<parameter name="reconnectInterval" type="integer" unit="s" min="1">
+				<label>Auto Reconnect Interval</label>
+				<required>true</required>
+				<description>Interval the device reconnects in sec.</description>
+				<default>300</default>
 				<advanced>true</advanced>
 			</parameter>
 		</config-description>

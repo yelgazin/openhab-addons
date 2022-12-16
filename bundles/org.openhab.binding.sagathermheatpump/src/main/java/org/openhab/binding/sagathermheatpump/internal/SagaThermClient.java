@@ -15,66 +15,86 @@ package org.openhab.binding.sagathermheatpump.internal;
 import static org.openhab.binding.sagathermheatpump.internal.SagaThermMessage.ParameterIndex;
 
 import java.io.IOException;
-import java.util.LinkedList;
-import java.util.List;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 import org.eclipse.jdt.annotation.NonNullByDefault;
+import org.openhab.core.common.ThreadPoolManager;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * @author Maxim Yelgazin - Initial contribution
  */
 @NonNullByDefault
-public class SagaThermClient extends SagaThermClientBase implements Observable {
+public class SagaThermClient extends SagaThermClientBase {
+    protected final ScheduledExecutorService scheduler = ThreadPoolManager.getScheduledPool("thingHandler");
+    private final Logger logger = LoggerFactory.getLogger(SagaThermClient.class);
+    private final ScheduledFuture<?> pollingStatusJob;
+    private final SagaThermClientCallback callback;
 
-    public SagaThermClient(String hostname, int port) {
+    public SagaThermClient(String hostname, int port, int pollInterval, SagaThermClientCallback callback) {
         super(hostname, port);
+        this.callback = callback;
+        pollingStatusJob = scheduler.scheduleWithFixedDelay(this::pollingDeviceStatus, 0, pollInterval,
+                TimeUnit.SECONDS);
+        logger.debug("Started polling request status job");
     }
 
-    private final List<Observer> observers = new LinkedList<>();
-
     @Override
-    public void registerObserver(Observer o) {
-        if (!observers.contains(o)) {
-            observers.add(o);
+    public void disconnect() {
+        pollingStatusJob.cancel(true);
+        super.disconnect();
+    }
+
+    private void pollingDeviceStatus() {
+        if (isConnected()) {
+            logger.debug("Polling heatpump status");
+            try {
+                requestStatus();
+            } catch (Exception ex) {
+                logger.error("Error requesting status. {}", ex.getMessage());
+                onUncaughtException(ex);
+            }
+        } else {
+            logger.debug("Polling heatpump status. Not yet connected");
         }
     }
 
     @Override
-    public void removeObserver(Observer o) {
-        observers.remove(o);
-    }
-
-    @Override
     protected void processMessage(SagaThermResponseMessage message) {
-        if (message instanceof SagaThermResponseMessageReadParam) {
-            var extendedMessage = (SagaThermResponseMessageReadParam) message;
-            var parameterIndex = extendedMessage.getParameterIndex();
-            if (parameterIndex == ParameterIndex.SETPOINT_COMFORT_TEMPERATURE) {
-                observers.forEach(x -> x.updateSetpointComfortTemperature(extendedMessage.getParameterValue()));
-            } else if (parameterIndex == ParameterIndex.SETPOINT_BOILER_TEMPERATURE) {
-                observers.forEach(x -> x.updateSetpointBoilerTemperature(extendedMessage.getParameterValue()));
+        if (isConnected()) {
+            if (message instanceof SagaThermResponseMessageReadParam) {
+                var extendedMessage = (SagaThermResponseMessageReadParam) message;
+                var parameterIndex = extendedMessage.getParameterIndex();
+                if (parameterIndex == ParameterIndex.SETPOINT_COMFORT_TEMPERATURE) {
+                    callback.updateSetpointComfortTemperature(extendedMessage.getParameterValue());
+                } else if (parameterIndex == ParameterIndex.SETPOINT_BOILER_TEMPERATURE) {
+                    callback.updateSetpointBoilerTemperature(extendedMessage.getParameterValue());
+                }
+            } else if (message instanceof SagaThermResponseMessageWriteParam) {
+                var extendedMessage = (SagaThermResponseMessageWriteParam) message;
+                var parameterIndex = extendedMessage.getParameterIndex();
+                if (parameterIndex == ParameterIndex.SETPOINT_COMFORT_TEMPERATURE) {
+                    callback.updateSetpointComfortTemperature(extendedMessage.getParameterValue());
+                } else if (parameterIndex == ParameterIndex.SETPOINT_BOILER_TEMPERATURE) {
+                    callback.updateSetpointBoilerTemperature(extendedMessage.getParameterValue());
+                }
+            } else if (message instanceof SagaThermResponseMessageStatus) {
+                var extendedMessage = (SagaThermResponseMessageStatus) message;
+                callback.updateAirTemperature(extendedMessage.getTemperature(1));
+                callback.updateBoilerTemperature(extendedMessage.getTemperature(7));
+                callback.updateState(extendedMessage.getState(0));
             }
-        } else if (message instanceof SagaThermResponseMessageWriteParam) {
-            var extendedMessage = (SagaThermResponseMessageWriteParam) message;
-            var parameterIndex = extendedMessage.getParameterIndex();
-            if (parameterIndex == ParameterIndex.SETPOINT_COMFORT_TEMPERATURE) {
-                observers.forEach(x -> x.updateSetpointComfortTemperature(extendedMessage.getParameterValue()));
-            } else if (parameterIndex == ParameterIndex.SETPOINT_BOILER_TEMPERATURE) {
-                observers.forEach(x -> x.updateSetpointBoilerTemperature(extendedMessage.getParameterValue()));
-            }
-        } else if (message instanceof SagaThermResponseMessageStatus) {
-            var extendedMessage = (SagaThermResponseMessageStatus) message;
-            observers.forEach(x -> {
-                x.updateAirTemperature(extendedMessage.getTemperature(1));
-                x.updateBoilerTemperature(extendedMessage.getTemperature(7));
-                x.updateState(extendedMessage.getState(0));
-            });
         }
     }
 
     @Override
     protected void onUncaughtException(Throwable ex) {
-        observers.forEach(x -> x.onUncaughtException(ex));
+        if (isConnected()) {
+            callback.onUncaughtException(ex);
+        }
     }
 
     public void setPower(boolean on) throws IOException {
